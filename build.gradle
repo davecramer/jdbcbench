@@ -14,22 +14,33 @@ plugins {
     id 'application'
 }
 
+group 'rocks.postgres'
+version '0.1-SNAPSHOT'
+sourceCompatibility = 1.8
+
 repositories {
     // Use jcenter for resolving dependencies.
     // You can declare any Maven/Ivy/file repository here.
+    mavenLocal()
     jcenter()
+    mavenCentral()
+
 }
 
 dependencies {
     // This dependency is used by the application.
-    implementation 'com.google.guava:guava:28.1-jre'
     implementation 'org.postgresql:postgresql:42.2.16'
+    compile 'info.picocli:picocli:4.5.1'
+    annotationProcessor 'info.picocli:picocli-codegen:4.5.1'
 
     // Use JUnit test framework
     testImplementation 'junit:junit:4.12'
 }
 
+compileJava {
+    options.compilerArgs += ["-Aproject=${project.group}/${project.name}"]
+}
 application {
     // Define the main class for the application.
-    mainClassName = 'rocks.postgres.App'
+    mainClassName = 'rocks.postgres.JDBCBench'
 }

@@ -12,10 +12,23 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
 
-public class JDBCBench {
+import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
+
+@Command(name="JDBCBench", version = "0.1")
+
+public class JDBCBench implements Callable <Integer> {
+	private enum Protocol  {
+			SIMPLE,
+			EXTENDED,
+			PREPARED
+	}
 
 	/* tpc bm b scaling rules */
+	@Option(names = {"-s, --scale"}, description = "scale factor")
 	private static int scale = 1; /* the database scaling factor */
 	private static int numBranches = 1; /* number of branches in 1 scale db */
 	private static int numTellers = 10; /* number of tellers in 1 scale db */
@@ -26,70 +39,59 @@ public class JDBCBench {
 	public final static int BRANCH = 1;
 	public final static int ACCOUNT = 2;
 
-	public static String DBUrl = "";
-	public static boolean isTransactionBlock = true;
-	public static boolean selectOnly = false;
+	/* we will use host, port, user, database */
+	@Deprecated
 
-	int failedTransactions = 0;
-	int transactionCount = 0;
-	static int numClients = 10;
-	static int n_txn_per_client = 10;
-	long startTime = 0;
+	@Option(names={"--url, -u"}, description = "Url to connect to ")
+	private  String DBUrl = "";
 
-	static boolean verbose = false;
+	@Option(names={"--transactions", "-t"}, description = "Number of transactions each client runs. Default is ${DEFAULT-VALUE}", defaultValue = "10")
+	private int transactionsPerClient = 10;
 
-	MemoryWatcherThread MemoryWatcher;
+	@Option(names={"--clients", "-c"}, description = "Number of clients simulated, that is, number of concurrent database sessions. Default is ${DEFAULT-VALUE}", defaultValue = "1")
+	private int numClients = 10;
 
-	/*
-	 * main program, creates a 1-scale database: i.e. 1 branch, 10 tellers,...
-	 * runs one TPC BM B transaction
-	 */
+	@Option(names={"--select", "-s"}, description = "Run built-in select-only script.", defaultValue = "false")
+	private boolean selectOnly = false;
 
-	public static void main(String[] Args) {
-		boolean initializeDataset = false;
+	@Option(names = {"--vacuum-all", "-v"}, description = "Vacuum all four standard tables before running the test. With neither -n nor -v, pgbench will vacuum the pgbench_tellers and pgbench_branches tables, and will truncate pgbench_history.", defaultValue = "false")
+	private boolean vacuumAll = false;
 
-		for (int i = 0; i < Args.length; i++) {
-			if (Args[i].equals("-clients")) {
-				if (i + 1 < Args.length) {
-					i++;
-					numClients = Integer.parseInt(Args[i]);
-				}
-			} else if (Args[i].equals("-url")) {
-				if (i + 1 < Args.length) {
-					i++;
-					DBUrl = Args[i];
-				}
-			} else if (Args[i].equals("-tpc")) {
-				if (i + 1 < Args.length) {
-					i++;
-					n_txn_per_client = Integer.parseInt(Args[i]);
-				}
-			} else if (Args[i].equals("-init")) {
-				initializeDataset = true;
-			} else if (Args[i].equals("-notrans")) {
-				isTransactionBlock = false;
-			} else if (Args[i].equals("-S")) {
-				selectOnly = true;
-			} else if (Args[i].equals("-v")) {
-				verbose = true;
-			}
-		}
+	@Option(names={"--no-vacuum", "-n"}, description = "Perform no vacuuming before running the test. This option is necessary if you are running a custom test scenario that does not include the standard tables", defaultValue = "false")
+	private boolean noVacuum = false;
 
-		if (DBUrl.length() == 0) {
-			System.out
-					.println(
-							"usage: java JDBCBench -driver [driver_class_name] -url [url_to_db] [-v] [-init] [-notrans] [-tpc n] [-clients]");
-			System.out.println();
-			System.out.println("-v 		verbose error messages");
-			System.out.println("-init 	initialize the tables");
-			System.out
-					.println("-notrans use auto-commit, not transaction mode");
-			System.out.println("-S	SELECT-only read mode");
-			System.out.println("-tpc	transactions per client");
-			System.out.println("-clients    number of simultaneous clients");
-			System.exit(-1);
-		}
+	@Option(names={"--protocol", "-M"}, description = "", defaultValue = "simple")
+	private Protocol protocol= Protocol.SIMPLE;
 
+	@Option(names={"--fillfactor", "-F"}, description = "Create the pgbench_accounts, pgbench_tellers and pgbench_branches tables with the given fill factor. Default is ${DEFAULT-VALUE}", defaultValue = "100")
+	private int fillFactor = 100;
+
+	@Option(names = {"--host", "-h"}, description = "Database server's host name", defaultValue = "localhost")
+	private String host = "localhost";
+
+	@Option(names={"--port", "-p"}, description = "Database server's port number", defaultValue = "5432")
+	private int port = 5432;
+
+	@Option(names={"--username", "-u"}, description = "User name to authenticate as", defaultValue = "current user")
+	private String user = System.getProperty("user.name");
+
+	@Option(names={"--initialize", "-i"}, description = "Initializes database, tables and data", defaultValue = "false")
+	private boolean initializeDataset=false;
+
+	@Option(names={"--verbose"}, description = "Verbose output", defaultValue = "false")
+	private boolean verbose = false;
+
+	private boolean isTransactionBlock = true;
+
+	private int failedTransactions = 0;
+	private int transactionCount = 0;
+	private long startTime = 0;
+
+
+	private MemoryWatcherThread MemoryWatcher;
+
+	@Override
+	public Integer call() {
 		System.out
 				.println("*********************************************************");
 		System.out
@@ -101,7 +103,7 @@ public class JDBCBench {
 		System.out.println();
 		System.out.println("Number of clients: " + numClients);
 		System.out.println("Number of transactions per client: "
-				+ n_txn_per_client);
+				+ transactionsPerClient);
 
 		if (selectOnly) {
 			System.out.println("Transaction mode:  SELECT-only");
@@ -113,14 +115,27 @@ public class JDBCBench {
 
 		try {
 			Connection connection = DriverManager.getConnection(DBUrl);
-			new JDBCBench(connection, initializeDataset);
+			executeTest(connection, initializeDataset);
 		} catch (Exception e) {
 			System.err.println(e.getMessage());
 			e.printStackTrace();
 		}
+		return 0;
+	}
+	/*
+	 * main program, creates a 1-scale database: i.e. 1 branch, 10 tellers,...
+	 * runs one TPC BM B transaction
+	 */
+
+	public static void main(String[] args) {
+		new CommandLine(new JDBCBench()).execute(args);
+
 	}
 
-	public JDBCBench(Connection con, boolean init) {
+	public JDBCBench() {
+
+	}
+	public void executeTest(Connection con, boolean init) {
 		int clientCount;
 		List<Thread> clients = new ArrayList<Thread>();
 		Thread t;
@@ -153,7 +168,7 @@ public class JDBCBench {
 					clientCon = DriverManager.getConnection(DBUrl);
 				}
 
-				Thread clientThread = new ClientThread(n_txn_per_client, i,
+				Thread clientThread = new ClientThread(transactionsPerClient, i,
 						clientCon);
 				clients.add(clientThread);
 			}

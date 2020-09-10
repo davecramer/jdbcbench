@@ -3,6 +3,7 @@
  *  Council Benchmark B coded in Java and ANSI SQL2. 
  */
 
+package rocks.postgres;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,10 +12,10 @@ public class JDBCBench {
 
 	/* tpc bm b scaling rules */
 	public static int scale = 1; /* the database scaling factor */
-	public static int nbranches = 1; /* number of branches in 1 scale db */
-	public static int ntellers = 10; /* number of tellers in 1 scale db */
-	public static int naccounts = 10000; /* number of accounts in 1 scale db */
-	public static int nhistory = 864000; /* number of history recs in 1 scale db */
+	public static int numBranches = 1; /* number of branches in 1 scale db */
+	public static int numTellers = 10; /* number of tellers in 1 scale db */
+	public static int numAccounts = 10000; /* number of accounts in 1 scale db */
+	public static int numHistory = 864000; /* number of history recs in 1 scale db */
 
 	public final static int TELLER = 0;
 	public final static int BRANCH = 1;
@@ -22,14 +23,14 @@ public class JDBCBench {
 
 	public static String DBUrl = "";
 	public static String DriverName = "";
-	public static boolean trans_block = true;
-	public static boolean select_only = false;
+	public static boolean isTransactionBlock = true;
+	public static boolean selectOnly = false;
 	
-	int failed_transactions = 0;
-	int transaction_count = 0;
-	static int n_clients = 10;
+	int failedTransactions = 0;
+	int transactionCount = 0;
+	static int numClients = 10;
 	static int n_txn_per_client = 10;
-	long start_time = 0;
+	long startTime = 0;
 
 	static boolean verbose = false;
 
@@ -41,13 +42,13 @@ public class JDBCBench {
 	 */
 
 	public static void main(String[] Args) {
-		boolean initialize_dataset = false;
+		boolean initializeDataset = false;
 
 		for (int i = 0; i < Args.length; i++) {
 			if (Args[i].equals("-clients")) {
 				if (i + 1 < Args.length) {
 					i++;
-					n_clients = Integer.parseInt(Args[i]);
+					numClients = Integer.parseInt(Args[i]);
 				}
 			} else if (Args[i].equals("-driver")) {
 				if (i + 1 < Args.length) {
@@ -65,11 +66,11 @@ public class JDBCBench {
 					n_txn_per_client = Integer.parseInt(Args[i]);
 				}
 			} else if (Args[i].equals("-init")) {
-				initialize_dataset = true;
+				initializeDataset = true;
 			} else if (Args[i].equals("-notrans")) {
-				trans_block = false;
+				isTransactionBlock = false;
 			} else if (Args[i].equals("-S")) {
-				select_only = true;
+				selectOnly = true;
 			} else if (Args[i].equals("-v")) {
 				verbose = true;
 			}
@@ -99,11 +100,11 @@ public class JDBCBench {
 		System.out.println("Driver: " + DriverName);
 		System.out.println("URL:" + DBUrl);
 		System.out.println();
-		System.out.println("Number of clients: " + n_clients);
+		System.out.println("Number of clients: " + numClients);
 		System.out.println("Number of transactions per client: "
 				+ n_txn_per_client);
 
-		if (select_only)
+		if (selectOnly)
 			System.out.println("Transaction mode:  SELECT-only");
 		else
 			System.out.println("Transaction mode:  TPC-B like");
@@ -111,49 +112,48 @@ public class JDBCBench {
 		System.out.println();
 
 		try {
-			Class.forName(DriverName);
-			Connection C = DriverManager.getConnection(DBUrl);
-			new JDBCBench(C, initialize_dataset);
-		} catch (Exception E) {
-			System.out.println(E.getMessage());
-			E.printStackTrace();
+			Connection connection = DriverManager.getConnection(DBUrl);
+			new JDBCBench(connection, initializeDataset);
+		} catch (Exception e) {
+			System.err.println(e.getMessage());
+			e.printStackTrace();
 		}
 	}
 
-	public JDBCBench(Connection C, boolean init) {
-		int client_count;
+	public JDBCBench(Connection con, boolean init) {
+		int clientCount;
 		List clients = new ArrayList();
 		Thread t;
 
 		try {
 			if (init) {
 				System.out.print("Initializing dataset...");
-				createDatabase(C);
+				createDatabase(con);
 				System.out.println("done.\n");
 			}
 			System.out.println("* Starting Benchmark Run *");
 			MemoryWatcher = new MemoryWatcherThread();
 			MemoryWatcher.start();
 
-			start_time = System.currentTimeMillis();
+			startTime = System.nanoTime();
 
 			/*
 			 * Cache the client count because once threads start, if the
 			 * transaction count is low they can finish and alter n_clients
 			 * before all the client threads have even been started.
 			 */
-			client_count = n_clients;
+			clientCount = numClients;
 
-			for (int i = 0; i < n_clients; i++) {
-				Connection client_con;
+			for (int i = 0; i < numClients; i++) {
+				Connection clientCon;
 				/* Re-use the existing connection for the first client */
 				if (i == 0)
-					client_con = C;
+					clientCon = con;
 				else
-					client_con = DriverManager.getConnection(DBUrl);
+					clientCon = DriverManager.getConnection(DBUrl);
 
 				Thread Client = new ClientThread(n_txn_per_client, i,
-						client_con);
+						clientCon);
 				clients.add(Client);
 			}
 
@@ -162,93 +162,92 @@ public class JDBCBench {
 			 * condition. Fast ending clients were reporting that all clients
 			 * were finished before some had even been started.
 			 */
-			for (int i = 0; i < client_count; i++) {
+			for (int i = 0; i < clientCount; i++) {
 				System.out.println("Starting client " + (i + 1));
 				t = (Thread) clients.get(i);
 				t.start();
 			}
 
-		} catch (Exception E) {
-			System.out.println(E.getMessage());
-			E.printStackTrace();
+		} catch (Exception e) {
+			System.err.println(e.getMessage());
+			e.printStackTrace();
 		}
 	}
 
 	public void reportDone() {
-		n_clients--;
+		numClients--;
 
-		if (n_clients <= 0) {
+		if (numClients <= 0) {
 			MemoryWatcher.interrupt();
-			long end_time = System.currentTimeMillis();
-			double completion_time = ((double) end_time - (double) start_time) / 1000;
+			long endTime = System.nanoTime();
+			double completion_time = ((double) endTime - (double) startTime) / 1E9;
 			System.out.println("* Benchmark finished *");
 			System.out.println("\n* Benchmark Report *");
 			System.out.println("--------------------\n");
-			System.out.println("Time to execute " + transaction_count
+			System.out.println("Time to execute " + transactionCount
 					+ " transactions: " + completion_time + " seconds.");
 			System.out.println("Max/Min memory usage: " + MemoryWatcher.max
 					+ " / " + MemoryWatcher.min + " kb");
-			System.out.println(failed_transactions + " / " + transaction_count
+			System.out.println(failedTransactions + " / " + transactionCount
 					+ " failed to complete.");
 			System.out.println("Transaction rate: "
-					+ (transaction_count - failed_transactions)
+					+ (transactionCount - failedTransactions)
 					/ completion_time + " txn/sec.");
 		}
 
 	}
 
 	public synchronized void incrementTransactionCount() {
-		transaction_count++;
+		transactionCount++;
 	}
 
 	public synchronized void incrementFailedTransactionCount() {
-		failed_transactions++;
+		failedTransactions++;
 	}
 
 	/*
 	 * createDatabase() - Creates and Initializes a scaled database.
 	 */
 
-	void createDatabase(Connection Conn) throws Exception {
+	void createDatabase(Connection conn) throws Exception {
 
-		try {
-			Statement Stmt = Conn.createStatement();
+		try ( Statement stmt = conn.createStatement() ) {
 
-			String Query = "CREATE TABLE branches (";
-			Query += "Bid         INT NOT NULL, PRIMARY KEY(Bid), ";
-			Query += "Bbalance    INT,";
-			Query += "filler      CHAR(88))"; /* pad to 100 bytes */
-			Stmt.executeUpdate(Query);
-			Stmt.clearWarnings();
+			String query = "CREATE TABLE branches (";
+			query += "Bid         INT NOT NULL, PRIMARY KEY(Bid), ";
+			query += "Bbalance    INT,";
+			query += "filler      CHAR(88))"; /* pad to 100 bytes */
+			stmt.executeUpdate(query);
+			stmt.clearWarnings();
 
-			Query = "CREATE TABLE tellers ( ";
-			Query += "Tid         INT NOT NULL, PRIMARY KEY(Tid),";
-			Query += "Bid         INT,";
-			Query += "Tbalance    INT,";
-			Query += "filler      CHAR(84))"; /* pad to 100 bytes */
+			query = "CREATE TABLE tellers ( ";
+			query += "Tid         INT NOT NULL, PRIMARY KEY(Tid),";
+			query += "Bid         INT,";
+			query += "Tbalance    INT,";
+			query += "filler      CHAR(84))"; /* pad to 100 bytes */
 
-			Stmt.executeUpdate(Query);
-			Stmt.clearWarnings();
+			stmt.executeUpdate(query);
+			stmt.clearWarnings();
 
-			Query = "CREATE TABLE accounts ( ";
-			Query += "Aid         INT NOT NULL, PRIMARY KEY(Aid), ";
-			Query += "Bid         INT, ";
-			Query += "Abalance    INT, ";
-			Query += "filler      CHAR(84))"; /* pad to 100 bytes */
+			query = "CREATE TABLE accounts ( ";
+			query += "Aid         INT NOT NULL, PRIMARY KEY(Aid), ";
+			query += "Bid         INT, ";
+			query += "Abalance    INT, ";
+			query += "filler      CHAR(84))"; /* pad to 100 bytes */
 
-			Stmt.executeUpdate(Query);
-			Stmt.clearWarnings();
+			stmt.executeUpdate(query);
+			stmt.clearWarnings();
 
-			Query = "CREATE TABLE history ( ";
-			Query += "Tid         INT, ";
-			Query += "Bid         INT, ";
-			Query += "Aid         INT, ";
-			Query += "delta       INT, ";
-			Query += "time        TIMESTAMP, ";
-			Query += "filler      CHAR(22))"; /* pad to 50 bytes */
+			query = "CREATE TABLE history ( ";
+			query += "Tid         INT, ";
+			query += "Bid         INT, ";
+			query += "Aid         INT, ";
+			query += "delta       INT, ";
+			query += "time        TIMESTAMP, ";
+			query += "filler      CHAR(22))"; /* pad to 50 bytes */
 
-			Stmt.executeUpdate(Query);
-			Stmt.clearWarnings();
+			stmt.executeUpdate(query);
+			stmt.clearWarnings();
 
 			/*
 			 * prime database using TPC BM B scaling rules. Note that for each
@@ -256,27 +255,27 @@ public class JDBCBench {
 			 * account_id / naccounts
 			 */
 
-			for (int i = 0; i < nbranches * scale; i++) {
-				Query = "INSERT INTO branches(Bid,Bbalance) VALUES (" + i
+			for (int i = 0; i < numBranches * scale; i++) {
+				query = "INSERT INTO branches(Bid,Bbalance) VALUES (" + i
 						+ ",0)";
-				Stmt.executeUpdate(Query);
-				Stmt.clearWarnings();
+				stmt.executeUpdate(query);
+				stmt.clearWarnings();
 			}
-			for (int i = 0; i < ntellers * scale; i++) {
-				Query = "INSERT INTO tellers(Tid,Bid,Tbalance) VALUES (" + i
-						+ "," + i / ntellers + ",0)";
-				Stmt.executeUpdate(Query);
-				Stmt.clearWarnings();
+			for (int i = 0; i < numTellers * scale; i++) {
+				query = "INSERT INTO tellers(Tid,Bid,Tbalance) VALUES (" + i
+						+ "," + i / numTellers + ",0)";
+				stmt.executeUpdate(query);
+				stmt.clearWarnings();
 			}
-			for (int i = 0; i < naccounts * scale; i++) {
-				Query = "INSERT INTO accounts(Aid,Bid,Abalance) VALUES (" + i
-						+ "," + i / naccounts + ",0)";
-				Stmt.executeUpdate(Query);
-				Stmt.clearWarnings();
+			for (int i = 0; i < numAccounts * scale; i++) {
+				query = "INSERT INTO accounts(Aid,Bid,Abalance) VALUES (" + i
+						+ "," + i / numAccounts + ",0)";
+				stmt.executeUpdate(query);
+				stmt.clearWarnings();
 			}
-		} catch (Exception E) {
-			System.out.println(E.getMessage());
-			E.printStackTrace();
+		} catch (Exception ex) {
+			System.err.println(ex.getMessage());
+			ex.printStackTrace();
 		}
 
 	} /* end of CreateDatabase */
@@ -293,14 +292,14 @@ public class JDBCBench {
 	public static int getRandomID(int type) {
 		int min, max, num;
 
-		max = min = 0;
-		num = naccounts;
+		min = 0;
+		num = numAccounts;
 		if (type == TELLER)
-			num = ntellers;
+			num = numTellers;
 		else if (type == BRANCH)
-			num = nbranches;
+			num = numBranches;
 		else if (type == ACCOUNT)
-			num=naccounts;
+			num= numAccounts;
 		max = min + num - 1;
 		return (getRandomInt(min, max));
 	}
@@ -308,12 +307,12 @@ public class JDBCBench {
 	class ClientThread extends Thread {
 		int ntrans = 0;
 		int clientid;
-		Connection Conn;
+		Connection connection;
 
 		public ClientThread(int number_of_txns, int id, Connection C) {
 			ntrans = number_of_txns;
 			clientid = id;
-			Conn = C;
+			connection = C;
 		}
 
 		public void run() {
@@ -327,95 +326,97 @@ public class JDBCBench {
 			}
 			reportDone();
 		}
-		
+
 		/*
 		 * doOne() - Executes a single TPC BM B transaction.
 		 */
 		int doOne(int aid, int bid, int tid, int delta) {
-			String Query;
+			String query;
 
-			try {
-				Statement Stmt = Conn.createStatement();
+			try (Statement stmt = connection.createStatement()) {
 
-				if (select_only)
-				{
-					Query = "SELECT Abalance ";
-					Query += "FROM   accounts ";
-					Query += "WHERE  Aid = " + aid;
+				if (selectOnly) {
+					query = "SELECT Abalance ";
+					query += "FROM   accounts ";
+					query += "WHERE  Aid = " + aid;
 
-					ResultSet RS = Stmt.executeQuery(Query);
-					Stmt.clearWarnings();
+					try (ResultSet rs = stmt.executeQuery(query)) {
+						stmt.clearWarnings();
+
+						while (rs.next()) {
+							rs.getInt(1);
+						}
+						return 0;
+					}
+				}
+
+				if (isTransactionBlock) {
+					connection.setAutoCommit(false);
+				}
+
+				query = "UPDATE accounts ";
+				query += "SET     Abalance = Abalance + " + delta + " ";
+				query += "WHERE   Aid = " + aid;
+
+				stmt.executeUpdate(query);
+				stmt.clearWarnings();
+
+				query = "SELECT Abalance ";
+				query += "FROM   accounts ";
+				query += "WHERE  Aid = " + aid;
+
+				try (ResultSet rs = stmt.executeQuery(query)) {
+					stmt.clearWarnings();
 
 					int aBalance = 0;
 
-					while (RS.next()) {
-						aBalance = RS.getInt(1);
-					}					
-					return 0;
+					while (rs.next()) {
+						aBalance = rs.getInt(1);
+					}
+
+					query = "UPDATE tellers ";
+					query += "SET    Tbalance = Tbalance + " + delta + " ";
+					query += "WHERE  Tid = " + tid;
+					stmt.executeUpdate(query);
+					stmt.clearWarnings();
+
+					query = "UPDATE branches ";
+					query += "SET    Bbalance = Bbalance + " + delta + " ";
+					query += "WHERE  Bid = " + bid;
+					stmt.executeUpdate(query);
+					stmt.clearWarnings();
+
+					query = "INSERT INTO history(Tid, Bid, Aid, delta) ";
+					query += "VALUES (";
+					query += tid + ",";
+					query += bid + ",";
+					query += aid + ",";
+					query += delta + ")";
+					stmt.executeUpdate(query);
+					stmt.clearWarnings();
+
+					if (isTransactionBlock) {
+						connection.commit();
+					}
+					return aBalance;
+
+				} catch (SQLException e) {
+					if (verbose) {
+						System.err.println("Transaction failed: " + e.getMessage());
+						e.printStackTrace();
+					}
+					incrementFailedTransactionCount();
 				}
-				
-				if (trans_block)
-					Conn.setAutoCommit(false);
+				return 0;
 
-				Query = "UPDATE accounts ";
-				Query += "SET     Abalance = Abalance + " + delta + " ";
-				Query += "WHERE   Aid = " + aid;
-
-				Stmt.executeUpdate(Query);
-				Stmt.clearWarnings();
-
-				Query = "SELECT Abalance ";
-				Query += "FROM   accounts ";
-				Query += "WHERE  Aid = " + aid;
-
-				ResultSet RS = Stmt.executeQuery(Query);
-				Stmt.clearWarnings();
-
-				int aBalance = 0;
-
-				while (RS.next()) {
-					aBalance = RS.getInt(1);
-				}
-
-				Query = "UPDATE tellers ";
-				Query += "SET    Tbalance = Tbalance + " + delta + " ";
-				Query += "WHERE  Tid = " + tid;
-				Stmt.executeUpdate(Query);
-				Stmt.clearWarnings();
-
-				Query = "UPDATE branches ";
-				Query += "SET    Bbalance = Bbalance + " + delta + " ";
-				Query += "WHERE  Bid = " + bid;
-				Stmt.executeUpdate(Query);
-				Stmt.clearWarnings();
-
-				Query = "INSERT INTO history(Tid, Bid, Aid, delta) ";
-				Query += "VALUES (";
-				Query += tid + ",";
-				Query += bid + ",";
-				Query += aid + ",";
-				Query += delta + ")";
-				Stmt.executeUpdate(Query);
-				Stmt.clearWarnings();
-
-				if (trans_block)
-					Conn.commit();
-
-				return aBalance;
-			} catch (SQLException E) {
-				if (verbose) {
-					System.out.println("Transaction failed: " + E.getMessage());
-					E.printStackTrace();
-				}
-				incrementFailedTransactionCount();
+			} catch (SQLException ex) {
+				ex.printStackTrace(); /* end of DoOne */
+				return 0;
 			}
-			return 0;
-
-		} /* end of DoOne */
-
+		}
 	}
 
-	class MemoryWatcherThread extends Thread {
+	static class MemoryWatcherThread extends Thread {
 		long min = 0;
 		long max = 0;
 		boolean running;
@@ -436,7 +437,7 @@ public class JDBCBench {
 
 				try {
 					sleep(100);
-				} catch (InterruptedException E) {
+				} catch (InterruptedException e) {
 					running = false;
 				}
 			}

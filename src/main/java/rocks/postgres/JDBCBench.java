@@ -1,31 +1,35 @@
-/* 
- *  This is a sample implementation of the Transaction Processing Performance 
- *  Council Benchmark B coded in Java and ANSI SQL2. 
+/*
+ *  This is a sample implementation of the Transaction Processing Performance
+ *  Council Benchmark B coded in Java and ANSI SQL2.
  */
 
 package rocks.postgres;
-import java.sql.*;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
 public class JDBCBench {
 
 	/* tpc bm b scaling rules */
-	public static int scale = 1; /* the database scaling factor */
-	public static int numBranches = 1; /* number of branches in 1 scale db */
-	public static int numTellers = 10; /* number of tellers in 1 scale db */
-	public static int numAccounts = 10000; /* number of accounts in 1 scale db */
-	public static int numHistory = 864000; /* number of history recs in 1 scale db */
+	private static int scale = 1; /* the database scaling factor */
+	private static int numBranches = 1; /* number of branches in 1 scale db */
+	private static int numTellers = 10; /* number of tellers in 1 scale db */
+	private static int numAccounts = 10000; /* number of accounts in 1 scale db */
+	private static int numHistory = 864000; /* number of history recs in 1 scale db */
 
 	public final static int TELLER = 0;
 	public final static int BRANCH = 1;
 	public final static int ACCOUNT = 2;
 
 	public static String DBUrl = "";
-	public static String DriverName = "";
 	public static boolean isTransactionBlock = true;
 	public static boolean selectOnly = false;
-	
+
 	int failedTransactions = 0;
 	int transactionCount = 0;
 	static int numClients = 10;
@@ -50,11 +54,6 @@ public class JDBCBench {
 					i++;
 					numClients = Integer.parseInt(Args[i]);
 				}
-			} else if (Args[i].equals("-driver")) {
-				if (i + 1 < Args.length) {
-					i++;
-					DriverName = Args[i];
-				}
 			} else if (Args[i].equals("-url")) {
 				if (i + 1 < Args.length) {
 					i++;
@@ -76,9 +75,10 @@ public class JDBCBench {
 			}
 		}
 
-		if (DriverName.length() == 0 || DBUrl.length() == 0) {
+		if (DBUrl.length() == 0) {
 			System.out
-					.println("usage: java JDBCBench -driver [driver_class_name] -url [url_to_db] [-v] [-init] [-notrans] [-tpc n] [-clients]");
+					.println(
+							"usage: java JDBCBench -driver [driver_class_name] -url [url_to_db] [-v] [-init] [-notrans] [-tpc n] [-clients]");
 			System.out.println();
 			System.out.println("-v 		verbose error messages");
 			System.out.println("-init 	initialize the tables");
@@ -97,17 +97,17 @@ public class JDBCBench {
 		System.out
 				.println("*********************************************************");
 		System.out.println();
-		System.out.println("Driver: " + DriverName);
 		System.out.println("URL:" + DBUrl);
 		System.out.println();
 		System.out.println("Number of clients: " + numClients);
 		System.out.println("Number of transactions per client: "
 				+ n_txn_per_client);
 
-		if (selectOnly)
+		if (selectOnly) {
 			System.out.println("Transaction mode:  SELECT-only");
-		else
+		} else {
 			System.out.println("Transaction mode:  TPC-B like");
+		}
 
 		System.out.println();
 
@@ -122,7 +122,7 @@ public class JDBCBench {
 
 	public JDBCBench(Connection con, boolean init) {
 		int clientCount;
-		List clients = new ArrayList();
+		List<Thread> clients = new ArrayList<Thread>();
 		Thread t;
 
 		try {
@@ -147,14 +147,15 @@ public class JDBCBench {
 			for (int i = 0; i < numClients; i++) {
 				Connection clientCon;
 				/* Re-use the existing connection for the first client */
-				if (i == 0)
+				if (i == 0) {
 					clientCon = con;
-				else
+				} else {
 					clientCon = DriverManager.getConnection(DBUrl);
+				}
 
-				Thread Client = new ClientThread(n_txn_per_client, i,
+				Thread clientThread = new ClientThread(n_txn_per_client, i,
 						clientCon);
-				clients.add(Client);
+				clients.add(clientThread);
 			}
 
 			/*
@@ -164,7 +165,7 @@ public class JDBCBench {
 			 */
 			for (int i = 0; i < clientCount; i++) {
 				System.out.println("Starting client " + (i + 1));
-				t = (Thread) clients.get(i);
+				t = clients.get(i);
 				t.start();
 			}
 
@@ -209,39 +210,39 @@ public class JDBCBench {
 	 * createDatabase() - Creates and Initializes a scaled database.
 	 */
 
-	void createDatabase(Connection conn) throws Exception {
+	void createDatabase(Connection conn) {
 
-		try ( Statement stmt = conn.createStatement() ) {
+		try (Statement stmt = conn.createStatement()) {
 
 			String query = "CREATE TABLE branches (";
-			query += "Bid         INT NOT NULL, PRIMARY KEY(Bid), ";
-			query += "Bbalance    INT,";
+			query += "bid         INT NOT NULL, PRIMARY KEY(bid), ";
+			query += "bbalance    INT,";
 			query += "filler      CHAR(88))"; /* pad to 100 bytes */
 			stmt.executeUpdate(query);
 			stmt.clearWarnings();
 
 			query = "CREATE TABLE tellers ( ";
-			query += "Tid         INT NOT NULL, PRIMARY KEY(Tid),";
-			query += "Bid         INT,";
-			query += "Tbalance    INT,";
+			query += "tid         INT NOT NULL, PRIMARY KEY(tid),";
+			query += "bid         INT,";
+			query += "tbalance    INT,";
 			query += "filler      CHAR(84))"; /* pad to 100 bytes */
 
 			stmt.executeUpdate(query);
 			stmt.clearWarnings();
 
 			query = "CREATE TABLE accounts ( ";
-			query += "Aid         INT NOT NULL, PRIMARY KEY(Aid), ";
-			query += "Bid         INT, ";
-			query += "Abalance    INT, ";
+			query += "aid         INT NOT NULL, PRIMARY KEY(aid), ";
+			query += "bid         INT, ";
+			query += "abalance    INT, ";
 			query += "filler      CHAR(84))"; /* pad to 100 bytes */
 
 			stmt.executeUpdate(query);
 			stmt.clearWarnings();
 
 			query = "CREATE TABLE history ( ";
-			query += "Tid         INT, ";
-			query += "Bid         INT, ";
-			query += "Aid         INT, ";
+			query += "tid         INT, ";
+			query += "bid         INT, ";
+			query += "aid         INT, ";
 			query += "delta       INT, ";
 			query += "time        TIMESTAMP, ";
 			query += "filler      CHAR(22))"; /* pad to 50 bytes */
@@ -256,19 +257,19 @@ public class JDBCBench {
 			 */
 
 			for (int i = 0; i < numBranches * scale; i++) {
-				query = "INSERT INTO branches(Bid,Bbalance) VALUES (" + i
+				query = "INSERT INTO branches(bid,bbalance) VALUES (" + i
 						+ ",0)";
 				stmt.executeUpdate(query);
 				stmt.clearWarnings();
 			}
 			for (int i = 0; i < numTellers * scale; i++) {
-				query = "INSERT INTO tellers(Tid,Bid,Tbalance) VALUES (" + i
+				query = "INSERT INTO tellers(tid,bid,tbalance) VALUES (" + i
 						+ "," + i / numTellers + ",0)";
 				stmt.executeUpdate(query);
 				stmt.clearWarnings();
 			}
 			for (int i = 0; i < numAccounts * scale; i++) {
-				query = "INSERT INTO accounts(Aid,Bid,Abalance) VALUES (" + i
+				query = "INSERT INTO accounts(aid,bid,abalance) VALUES (" + i
 						+ "," + i / numAccounts + ",0)";
 				stmt.executeUpdate(query);
 				stmt.clearWarnings();
@@ -281,7 +282,7 @@ public class JDBCBench {
 	} /* end of CreateDatabase */
 
 	public static int getRandomInt(int lo, int hi) {
-		int ret = 0;
+		int ret;
 
 		ret = (int) (Math.random() * (hi - lo + 1));
 		ret += lo;
@@ -305,7 +306,7 @@ public class JDBCBench {
 	}
 
 	class ClientThread extends Thread {
-		int ntrans = 0;
+		int ntrans;
 		int clientid;
 		Connection connection;
 
@@ -336,9 +337,9 @@ public class JDBCBench {
 			try (Statement stmt = connection.createStatement()) {
 
 				if (selectOnly) {
-					query = "SELECT Abalance ";
+					query = "SELECT abalance ";
 					query += "FROM   accounts ";
-					query += "WHERE  Aid = " + aid;
+					query += "WHERE  aid = " + aid;
 
 					try (ResultSet rs = stmt.executeQuery(query)) {
 						stmt.clearWarnings();
@@ -355,15 +356,15 @@ public class JDBCBench {
 				}
 
 				query = "UPDATE accounts ";
-				query += "SET     Abalance = Abalance + " + delta + " ";
-				query += "WHERE   Aid = " + aid;
+				query += "SET abalance = abalance + " + delta + " ";
+				query += "WHERE aid = " + aid;
 
 				stmt.executeUpdate(query);
 				stmt.clearWarnings();
 
-				query = "SELECT Abalance ";
+				query = "SELECT abalance ";
 				query += "FROM   accounts ";
-				query += "WHERE  Aid = " + aid;
+				query += "WHERE  aid = " + aid;
 
 				try (ResultSet rs = stmt.executeQuery(query)) {
 					stmt.clearWarnings();
@@ -375,18 +376,18 @@ public class JDBCBench {
 					}
 
 					query = "UPDATE tellers ";
-					query += "SET    Tbalance = Tbalance + " + delta + " ";
-					query += "WHERE  Tid = " + tid;
+					query += "SET    tbalance = tbalance + " + delta + " ";
+					query += "WHERE  tid = " + tid;
 					stmt.executeUpdate(query);
 					stmt.clearWarnings();
 
 					query = "UPDATE branches ";
-					query += "SET    Bbalance = Bbalance + " + delta + " ";
-					query += "WHERE  Bid = " + bid;
+					query += "SET    bbalance = bbalance + " + delta + " ";
+					query += "WHERE  bid = " + bid;
 					stmt.executeUpdate(query);
 					stmt.clearWarnings();
 
-					query = "INSERT INTO history(Tid, Bid, Aid, delta) ";
+					query = "INSERT INTO history(tid, bid, aid, delta) ";
 					query += "VALUES (";
 					query += tid + ",";
 					query += bid + ",";

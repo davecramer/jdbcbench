@@ -17,14 +17,20 @@ import java.util.concurrent.Callable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
 
 @Command(name="JDBCBench", version = "0.1")
 
 public class JDBCBench implements Callable <Integer> {
 	private enum Protocol  {
-			SIMPLE,
-			EXTENDED,
-			PREPARED
+			SIMPLE("simple"),
+			EXTENDED("extended"),
+			PREPARED("prepared");
+
+		Protocol(String label){
+				this.label = label;
+		}
+		public final String label;
 	}
 
 	/* tpc bm b scaling rules */
@@ -42,8 +48,6 @@ public class JDBCBench implements Callable <Integer> {
 	/* we will use host, port, user, database */
 	@Deprecated
 
-	@Option(names={"--url, -u"}, description = "Url to connect to ")
-	private  String DBUrl = "";
 
 	@Option(names={"--transactions", "-t"}, description = "Number of transactions each client runs. Default is ${DEFAULT-VALUE}", defaultValue = "10")
 	private int transactionsPerClient = 10;
@@ -60,7 +64,7 @@ public class JDBCBench implements Callable <Integer> {
 	@Option(names={"--no-vacuum", "-n"}, description = "Perform no vacuuming before running the test. This option is necessary if you are running a custom test scenario that does not include the standard tables", defaultValue = "false")
 	private boolean noVacuum = false;
 
-	@Option(names={"--protocol", "-M"}, description = "", defaultValue = "simple")
+	@Option(names={"--protocol", "-M"}, description = "", defaultValue = "SIMPLE")
 	private Protocol protocol= Protocol.SIMPLE;
 
 	@Option(names={"--fillfactor", "-F"}, description = "Create the pgbench_accounts, pgbench_tellers and pgbench_branches tables with the given fill factor. Default is ${DEFAULT-VALUE}", defaultValue = "100")
@@ -71,6 +75,9 @@ public class JDBCBench implements Callable <Integer> {
 
 	@Option(names={"--port", "-p"}, description = "Database server's port number", defaultValue = "5432")
 	private int port = 5432;
+
+	@Parameters(defaultValue = "pgbench", description = "Database Name")
+	private String dbName;
 
 	@Option(names={"--username", "-u"}, description = "User name to authenticate as", defaultValue = "current user")
 	private String user = System.getProperty("user.name");
@@ -90,8 +97,22 @@ public class JDBCBench implements Callable <Integer> {
 
 	private MemoryWatcherThread MemoryWatcher;
 
+	private final String jdbcProtocol = "jdbc:postgresql://";
+
+	private String createUrl(String host, int port, String database){
+		StringBuilder stringBuilder = new StringBuilder(jdbcProtocol)
+				.append(host)
+				.append(':')
+				.append(port)
+				.append('/')
+				.append(database);
+		return stringBuilder.toString();
+	}
+	String dbUrl;
+
 	@Override
 	public Integer call() {
+		 dbUrl = createUrl(host, port, dbName);
 		System.out
 				.println("*********************************************************");
 		System.out
@@ -99,7 +120,7 @@ public class JDBCBench implements Callable <Integer> {
 		System.out
 				.println("*********************************************************");
 		System.out.println();
-		System.out.println("URL:" + DBUrl);
+		System.out.println("URL:" + dbUrl );
 		System.out.println();
 		System.out.println("Number of clients: " + numClients);
 		System.out.println("Number of transactions per client: "
@@ -114,7 +135,7 @@ public class JDBCBench implements Callable <Integer> {
 		System.out.println();
 
 		try {
-			Connection connection = DriverManager.getConnection(DBUrl);
+			Connection connection = DriverManager.getConnection(dbUrl);
 			executeTest(connection, initializeDataset);
 		} catch (Exception e) {
 			System.err.println(e.getMessage());
@@ -133,8 +154,8 @@ public class JDBCBench implements Callable <Integer> {
 	}
 
 	public JDBCBench() {
-
 	}
+
 	public void executeTest(Connection con, boolean init) {
 		int clientCount;
 		List<Thread> clients = new ArrayList<Thread>();
@@ -165,7 +186,7 @@ public class JDBCBench implements Callable <Integer> {
 				if (i == 0) {
 					clientCon = con;
 				} else {
-					clientCon = DriverManager.getConnection(DBUrl);
+					clientCon = DriverManager.getConnection(dbUrl);
 				}
 
 				Thread clientThread = new ClientThread(transactionsPerClient, i,

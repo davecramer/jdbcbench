@@ -5,7 +5,6 @@
 
 package rocks.postgres;
 
-import java.io.PrintStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -13,7 +12,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
 
@@ -21,8 +19,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
-
-import javax.swing.plaf.nimbus.State;
+import rocks.postgres.util.QueryUtils;
 
 @Command(name="JDBCBench", version = "0.1")
 
@@ -462,7 +459,7 @@ public class JDBCBench implements Callable <Integer> {
 
 			for (int i = 0; i < numTellers * scale; i++) {
 				pstmt.setInt(1, i);
-				pstmt.setInt(2, numTellers / i);
+				pstmt.setInt(2, i / numTellers );
 				pstmt.executeUpdate();
 				pstmt.clearWarnings();
 			}
@@ -508,12 +505,17 @@ public class JDBCBench implements Callable <Integer> {
 
 		min = 0;
 		num = numAccounts;
-		if (type == TELLER)
-			num = numTellers;
-		else if (type == BRANCH)
-			num = numBranches;
-		else if (type == ACCOUNT)
-			num= numAccounts;
+		switch (type) {
+			case TELLER:
+				num=numTellers;
+				break;
+			case BRANCH:
+				num = numBranches;
+				break;
+			case ACCOUNT:
+				num = numAccounts;
+				break;
+		}
 		max = min + num - 1;
 		return (getRandomInt(min, max));
 	}
@@ -546,13 +548,12 @@ public class JDBCBench implements Callable <Integer> {
 		 */
 		int doOne(int aid, int bid, int tid, int delta) {
 			String query;
+			QueryUtils queryUtils = new QueryUtils(false, false, false);
 
 			try (Statement stmt = connection.createStatement()) {
 
 				if (selectOnly) {
-					query = "SELECT abalance ";
-					query += "FROM   pgbench_accounts ";
-					query += "WHERE  aid = " + aid;
+					query = queryUtils.prepareSelectQuery(aid);
 
 					try (ResultSet rs = stmt.executeQuery(query)) {
 						stmt.clearWarnings();
@@ -563,21 +564,17 @@ public class JDBCBench implements Callable <Integer> {
 						return 0;
 					}
 				}
-
+				// note the return above
 				if (isTransactionBlock) {
 					connection.setAutoCommit(false);
 				}
 
-				query = "UPDATE pgbench_accounts ";
-				query += "SET abalance = abalance + " + delta + " ";
-				query += "WHERE aid = " + aid;
+				query = queryUtils.prepareUpdateAccountsQuery(delta, aid);
 
 				stmt.executeUpdate(query);
 				stmt.clearWarnings();
 
-				query = "SELECT abalance ";
-				query += "FROM   pgbench_accounts ";
-				query += "WHERE  aid = " + aid;
+				query = queryUtils.prepareSelectQuery(aid);
 
 				try (ResultSet rs = stmt.executeQuery(query)) {
 					stmt.clearWarnings();
@@ -587,25 +584,16 @@ public class JDBCBench implements Callable <Integer> {
 					while (rs.next()) {
 						aBalance = rs.getInt(1);
 					}
-
-					query = "UPDATE pgbench_tellers ";
-					query += "SET    tbalance = tbalance + " + delta + " ";
-					query += "WHERE  tid = " + tid;
+					query = queryUtils.prepareUpdateTellersQuery(delta,tid);
 					stmt.executeUpdate(query);
 					stmt.clearWarnings();
 
-					query = "UPDATE pgbench_branches ";
-					query += "SET    bbalance = bbalance + " + delta + " ";
-					query += "WHERE  bid = " + bid;
+					query = queryUtils.prepareUpdateBranchesQuery(delta, bid);
 					stmt.executeUpdate(query);
 					stmt.clearWarnings();
 
-					query = "INSERT INTO pgbench_history(tid, bid, aid, delta) ";
-					query += "VALUES (";
-					query += tid + ",";
-					query += bid + ",";
-					query += aid + ",";
-					query += delta + ")";
+
+					query = queryUtils.prepareInsertHistoryQuery(tid, bid, aid, delta);
 					stmt.executeUpdate(query);
 					stmt.clearWarnings();
 

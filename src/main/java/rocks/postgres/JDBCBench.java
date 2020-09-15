@@ -8,6 +8,7 @@ package rocks.postgres;
 import java.io.PrintStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -85,6 +86,9 @@ public class JDBCBench implements Callable <Integer> {
 
 	@Option(names = {"--truncate"}, description = "truncate tables before run", defaultValue = "false")
 	private boolean truncate = false;
+
+	@Option(names = {"--unlogged-tables"}, description = "Create unlogged tables", defaultValue = "false")
+	private boolean unloggedTables = false;
 
 	@Option(names = {"--host", "-h"}, description = "Database server's host name", defaultValue = "localhost")
 	private String host = "localhost";
@@ -413,7 +417,7 @@ public class JDBCBench implements Callable <Integer> {
 
 		try (Statement stmt = conn.createStatement()) {
 
-			for ( DDLInfo tableDDL:tableList ) {
+			for (DDLInfo tableDDL : tableList) {
 				String q = tableDDL.createTable();
 				stmt.executeUpdate(q);
 				stmt.clearWarnings();
@@ -426,31 +430,57 @@ public class JDBCBench implements Callable <Integer> {
 			if (foreignKeys) {
 				initCreateFKeys(conn);
 			}
+		} catch ( SQLException ex ) {
+			System.err.println("Error creating tables");
+			ex.printStackTrace();
+		}
 
+		try {
+			// do this in a transaction to enable backend's data loading optimizations
+			conn.setAutoCommit(false);
+		} catch (SQLException ex ){
+
+		}
+
+		try ( PreparedStatement pstmt = conn.prepareStatement("INSERT INTO pgbench_branches(bid,bbalance) VALUES (?,?)") ) {
 			/*
 			 * prime database using TPC BM B scaling rules. Note that for each
 			 * branch and teller: branch_id = teller_id / ntellers branch_id =
 			 * account_id / naccounts
 			 */
-
+			pstmt.setInt(2, 0);
 			for (int i = 0; i < numBranches * scale; i++) {
-				query = "INSERT INTO pgbench_branches(bid,bbalance) VALUES (" + i
-						+ ",0)";
-				stmt.executeUpdate(query);
-				stmt.clearWarnings();
+				pstmt.setInt(1, i);
+				pstmt.executeUpdate();
+				pstmt.clearWarnings();
 			}
+		} catch ( SQLException ex ) {
+		}
+
+		try ( PreparedStatement pstmt = conn.prepareStatement("INSERT INTO pgbench_tellers(tid, bid,tbalance) VALUES (?,?,?)") ) {
+			pstmt.setInt(3, 0);
+
 			for (int i = 0; i < numTellers * scale; i++) {
-				query = "INSERT INTO pgbench_tellers(tid,bid,tbalance) VALUES (" + i
-						+ "," + i / numTellers + ",0)";
-				stmt.executeUpdate(query);
-				stmt.clearWarnings();
+				pstmt.setInt(1, i);
+				pstmt.setInt(2, numTellers / i);
+				pstmt.executeUpdate();
+				pstmt.clearWarnings();
 			}
+		} catch (SQLException ex ) {
+		}
+		try ( PreparedStatement pstmt = conn.prepareStatement("INSERT INTO pgbench_accounts(aid, bid,abalance) VALUES (?,?,?)") ) {
+			pstmt.setInt(3, 0);
+
 			for (int i = 0; i < numAccounts * scale; i++) {
-				query = "INSERT INTO pgbench_accounts(aid,bid,abalance) VALUES (" + i
-						+ "," + i / numAccounts + ",0)";
-				stmt.executeUpdate(query);
-				stmt.clearWarnings();
+				pstmt.setInt(1, i);
+				pstmt.setInt(2, i/numAccounts );
+				pstmt.executeUpdate();
+				pstmt.clearWarnings();
 			}
+		} catch ( SQLException ex) {
+		}
+		try {
+			conn.commit();
 		} catch (Exception ex) {
 			System.err.println(ex.getMessage());
 			ex.printStackTrace();

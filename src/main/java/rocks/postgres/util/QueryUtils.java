@@ -1,7 +1,6 @@
 package rocks.postgres.util;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.sql.*;
 
 public class QueryUtils {
 
@@ -52,4 +51,116 @@ public class QueryUtils {
         return prepareQuery(insertHistoryQuery, new int[] { tid, bid, aid, delta} );
     }
 
+    PreparedStatement updateAccountsPstmt;
+    public boolean executeUpdateAccounts(Connection con, int delta, int aid) throws SQLException {
+
+        if ( usePrepared ) {
+            if (updateAccountsPstmt == null ) {
+                updateAccountsPstmt = con.prepareStatement(updateAccountsQuery);
+            }
+            updateAccountsPstmt.clearParameters();
+            updateAccountsPstmt.setInt(1, delta);
+            updateAccountsPstmt.setInt(2, aid);
+            return updateAccountsPstmt.executeUpdate() == 1;
+        } else {
+            String query = prepareUpdateAccountsQuery(delta, aid);
+
+            try (Statement stmt = con.createStatement()) {
+                return stmt.executeUpdate(query) == 1;
+            }
+        }
+    }
+
+    PreparedStatement insertHistoryPstmt;
+    public boolean executeInsertHistory(Connection con, int tid, int bid, int aid, int delta ) throws SQLException {
+
+        if ( usePrepared ) {
+            if ( insertHistoryPstmt == null ) {
+                insertHistoryPstmt = con.prepareStatement(insertHistoryQuery);
+            }
+            insertHistoryPstmt.clearParameters();
+            insertHistoryPstmt.setInt(1, tid );
+            insertHistoryPstmt.setInt(2, bid );
+            insertHistoryPstmt.setInt(3, aid );
+            insertHistoryPstmt.setInt(4, delta );
+            return insertHistoryPstmt.executeUpdate() == 1;
+
+
+        } else {
+
+            String query = prepareInsertHistoryQuery(tid, bid, aid, delta);
+
+            try (Statement stmt = con.createStatement()) {
+                return stmt.executeUpdate(query) == 1;
+            }
+        }
+    }
+
+    PreparedStatement updateBranchesPstmt;
+    public boolean executeUpdateBranchesQuery(Connection con, int delta, int bid ) throws SQLException {
+
+        if ( usePrepared ) {
+            if (updateBranchesPstmt == null ) {
+                updateBranchesPstmt = con.prepareStatement(updateBranchesQuery);
+            }
+            updateBranchesPstmt.clearParameters();
+            updateBranchesPstmt.setInt(1, delta);
+            updateBranchesPstmt.setInt(2, bid);
+            return updateBranchesPstmt.executeUpdate() == 1;
+
+        } else {
+            String query = prepareUpdateBranchesQuery(delta, bid);
+
+            try (Statement stmt = con.createStatement()) {
+                return stmt.executeUpdate(query) == 1;
+            }
+        }
+    }
+    PreparedStatement updateTellersPstmt;
+    public boolean executeUpdateTellersQuery(Connection con, int delta, int tid) throws SQLException {
+        if ( usePrepared ) {
+            if ( updateTellersPstmt == null ) {
+                updateTellersPstmt = con.prepareStatement(updateTellersQuery);
+            }
+            updateTellersPstmt.clearParameters();
+            updateTellersPstmt.setInt(1, delta);
+            updateTellersPstmt.setInt(2, tid);
+            return updateTellersPstmt.executeUpdate() == 1;
+        } else {
+            String query = prepareUpdateTellersQuery(delta, tid);
+
+            try (Statement stmt = con.createStatement()) {
+                return stmt.executeUpdate(query) == 1;
+            }
+        }
+    }
+    PreparedStatement selectPstmt;
+    public int executeSelectQuery(Connection con, int aid) throws SQLException {
+        if ( usePrepared ) {
+            if (selectPstmt == null ) {
+                selectPstmt = con.prepareStatement( selectQuery );
+            }
+            selectPstmt.clearParameters();
+            selectPstmt.setInt(1, aid);
+            try (ResultSet rs = selectPstmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                } else {
+                    return -1;
+                }
+
+            }
+        }
+        String query = prepareSelectQuery(aid);
+        try ( Statement stmt = con.createStatement() ) {
+            try (ResultSet rs = stmt.executeQuery(query)) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+                else {
+                    return -1;
+                }
+            }
+        }
+    }
 }

@@ -8,7 +8,6 @@ package rocks.postgres;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -105,8 +104,8 @@ public class JDBCBench implements Callable <Integer> {
 	@Option(names={"--transactions", "-t"}, description = "Number of transactions each client runs. Default is ${DEFAULT-VALUE}", defaultValue = "10")
 	private int transactionsPerClient = 10;
 
-	@Option(names = {"--vacuum-all", "-v"}, description = "Vacuum all four standard tables before running the test. With neither -n nor -v, pgbench will vacuum the pgbench_tellers and pgbench_branches tables, and will truncate pgbench_history.", defaultValue = "false")
-	private boolean vacuumAll = false;
+	@Option(names = {"--vacuum-all", "-v"}, description = "Vacuum all four standard tables before running the test. With neither -n nor -v, pgbench will vacuum the pgbench_tellers and pgbench_branches tables, and will truncate pgbench_history.", defaultValue = "true")
+	private boolean vacuumAll = true;
 
 	@Parameters(defaultValue = "pgbench", description = "Database Name")
 	private String dbName;
@@ -200,7 +199,7 @@ public class JDBCBench implements Callable <Integer> {
 				System.out.println("done.\n");
 			}
 
-			if ( vacuumAll ) {
+			if ( vacuumAll == true ) {
 				System.out.println("Vacuuming tables ");
 				vacuum( con );
 			}
@@ -269,7 +268,6 @@ public class JDBCBench implements Callable <Integer> {
 					+ (transactionCount - failedTransactions)
 					/ completion_time + " txn/sec.");
 		}
-
 	}
 
 	public synchronized void incrementTransactionCount() {
@@ -487,7 +485,7 @@ public class JDBCBench implements Callable <Integer> {
 
 	private void vacuum( Connection con ) throws SQLException {
 		try (Statement statement = con.createStatement() ) {
-			statement.executeQuery("vacuum");
+			statement.execute("vacuum");
 		}
 	}
 
@@ -537,8 +535,17 @@ public class JDBCBench implements Callable <Integer> {
 				int branch = JDBCBench.getRandomID(BRANCH);
 				int teller = JDBCBench.getRandomID(TELLER);
 				int delta = JDBCBench.getRandomInt(-500, 500);
-				doOne(account, branch, teller, delta);
+                QueryUtils queryUtils = new QueryUtils(false, protocol == Protocol.PREPARED, false);
+                doOne(queryUtils, account, branch, teller, delta);
 				incrementTransactionCount();
+			}
+			try {
+				// clean up connections
+				if (connection!= null ) {
+					connection.close();
+				}
+			} catch (SQLException ex ){
+
 			}
 			reportDone();
 		}
@@ -546,74 +553,35 @@ public class JDBCBench implements Callable <Integer> {
 		/*
 		 * doOne() - Executes a single TPC BM B transaction.
 		 */
-		int doOne(int aid, int bid, int tid, int delta) {
-			String query;
-			QueryUtils queryUtils = new QueryUtils(false, false, false);
+		int doOne(QueryUtils queryUtils, int aid, int bid, int tid, int delta) {
 
-			try (Statement stmt = connection.createStatement()) {
-
+			try  {
 				if (selectOnly) {
-					query = queryUtils.prepareSelectQuery(aid);
-
-					try (ResultSet rs = stmt.executeQuery(query)) {
-						stmt.clearWarnings();
-
-						while (rs.next()) {
-							rs.getInt(1);
-						}
-						return 0;
-					}
+					return queryUtils.executeSelectQuery(connection, aid);
 				}
 				// note the return above
 				if (isTransactionBlock) {
 					connection.setAutoCommit(false);
 				}
 
-				query = queryUtils.prepareUpdateAccountsQuery(delta, aid);
+				queryUtils.executeUpdateAccounts(connection, delta, aid);
 
-				stmt.executeUpdate(query);
-				stmt.clearWarnings();
+				int aBalance = queryUtils.executeSelectQuery(connection, aid);
+				queryUtils.executeUpdateTellersQuery( connection, delta, tid);
+				queryUtils.executeUpdateBranchesQuery( connection, delta, bid);
+				queryUtils.executeInsertHistory( connection, aid, bid, tid, delta );
 
-				query = queryUtils.prepareSelectQuery(aid);
-
-				try (ResultSet rs = stmt.executeQuery(query)) {
-					stmt.clearWarnings();
-
-					int aBalance = 0;
-
-					while (rs.next()) {
-						aBalance = rs.getInt(1);
-					}
-					query = queryUtils.prepareUpdateTellersQuery(delta,tid);
-					stmt.executeUpdate(query);
-					stmt.clearWarnings();
-
-					query = queryUtils.prepareUpdateBranchesQuery(delta, bid);
-					stmt.executeUpdate(query);
-					stmt.clearWarnings();
-
-
-					query = queryUtils.prepareInsertHistoryQuery(tid, bid, aid, delta);
-					stmt.executeUpdate(query);
-					stmt.clearWarnings();
-
-					if (isTransactionBlock) {
-						connection.commit();
-					}
-					return aBalance;
-
-				} catch (SQLException e) {
-					if (verbose) {
-						System.err.println("Transaction failed: " + e.getMessage());
-						e.printStackTrace();
-					}
-					incrementFailedTransactionCount();
+				if (isTransactionBlock) {
+					connection.commit();
 				}
-				return 0;
-
+				return aBalance;
 			} catch (SQLException ex) {
-				ex.printStackTrace(); /* end of DoOne */
-				return 0;
+				if (verbose) {
+					System.err.println("Transaction failed: " + ex.getMessage());
+					ex.printStackTrace();
+				}
+				incrementFailedTransactionCount();
+					return 0;
 			}
 		}
 	}

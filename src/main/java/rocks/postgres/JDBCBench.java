@@ -12,12 +12,16 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.Callable;
 
+import org.postgresql.PGProperty;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
+import rocks.postgres.util.PGServiceFile;
 import rocks.postgres.util.QueryUtils;
 
 @Command(name="JDBCBench", version = "0.1")
@@ -47,9 +51,6 @@ public class JDBCBench implements Callable <Integer> {
 		FOREIGN_KEYS
 	}
 
-	/* tpc bm b scaling rules */
-	@Option(names = {"-s, --scale"}, description = "scale factor")
-	private static int scale = 1; /* the database scaling factor */
 	private static int numBranches = 1; /* number of branches in 1 scale db */
 	private static int numTellers = 10; /* number of tellers in 1 scale db */
 	private static int numAccounts = 10000; /* number of accounts in 1 scale db */
@@ -98,7 +99,14 @@ public class JDBCBench implements Callable <Integer> {
 	@Option(names={"--protocol", "-M"}, description = "", defaultValue = "SIMPLE")
 	private Protocol protocol= Protocol.SIMPLE;
 
-	@Option(names={"--select", "-s"}, description = "Run built-in select-only script.", defaultValue = "false")
+	@Option(names={"--pgservice", "-P"}, description = "Use named service", defaultValue = "")
+	private String service = null;
+
+	/* tpc bm b scaling rules */
+	@Option(names = {"--scale", "-s"}, description = "scale factor", defaultValue = "1")
+	private static int scale = 1; /* the database scaling factor */
+
+	@Option(names={"--select", "-S"}, description = "Run built-in select-only script.", defaultValue = "false")
 	private boolean selectOnly = false;
 
 	@Option(names={"--transactions", "-t"}, description = "Number of transactions each client runs. Default is ${DEFAULT-VALUE}", defaultValue = "10")
@@ -143,6 +151,19 @@ public class JDBCBench implements Callable <Integer> {
 
 	@Override
 	public Integer call() {
+		Properties props = new Properties();
+
+		PGServiceFile pgServiceFile = PGServiceFile.load();
+		if ( service != null && !service.equals("") ) {
+			try {
+				props.putAll(pgServiceFile.getService(service));
+				host = props.getProperty("host");
+//				port = PGProperty.PG_PORT.getString(props)==null?5432:;
+				dbName = props.getProperty("dbname");
+			} catch (SQLException throwables) {
+				throwables.printStackTrace();
+			}
+		}
 		dbUrl = createUrl(host, port, dbName);
 		System.out
 				.println("*********************************************************");
@@ -166,7 +187,13 @@ public class JDBCBench implements Callable <Integer> {
 		System.out.println();
 
 		try {
-			Connection connection = DriverManager.getConnection(dbUrl);
+			Connection connection;
+			if ( service != null && !service.equals("") ){
+				connection = DriverManager.getConnection(jdbcProtocol + props.getProperty("host")+'/'+props.getProperty("dbname"), props );
+			} else {
+
+				connection = DriverManager.getConnection(dbUrl);
+			}
 			executeTest(connection, initializeDataset);
 		} catch (Exception e) {
 			System.err.println(e.getMessage());
@@ -198,12 +225,11 @@ public class JDBCBench implements Callable <Integer> {
 				createDatabase(con, primaryKeys, foreignKeys, bigIntegers );
 				System.out.println("done.\n");
 			}
-
+			// can't run vacuum inside a tx
 			if ( vacuumAll == true ) {
 				System.out.println("Vacuuming tables ");
 				vacuum( con );
 			}
-
 			System.out.println("* Starting Benchmark Run *");
 			MemoryWatcher = new MemoryWatcherThread();
 			MemoryWatcher.start();
@@ -484,9 +510,15 @@ public class JDBCBench implements Callable <Integer> {
 	} /* end of CreateDatabase */
 
 	private void vacuum( Connection con ) throws SQLException {
-		try (Statement statement = con.createStatement() ) {
+		boolean autocommit = con.getAutoCommit();
+		if (autocommit == false) {
+			con.setAutoCommit(true);
+		}
+		try (Statement statement = con.createStatement()) {
 			statement.execute("vacuum");
 		}
+		con.setAutoCommit(autocommit);
+
 	}
 
 	public static int getRandomInt(int lo, int hi) {

@@ -9,14 +9,11 @@
 plugins {
     // Apply the java plugin to add support for Java
     id 'java'
+    id 'com.github.johnrengelman.shadow' version '6.1.0'
 
     // Apply the application plugin to add support for building a CLI application.
     id 'application'
 }
-
-group 'rocks.postgres'
-version '0.1-SNAPSHOT'
-sourceCompatibility = 1.8
 
 repositories {
     // Use jcenter for resolving dependencies.
@@ -27,19 +24,34 @@ repositories {
 
 }
 
+
+
+group 'rocks.postgres'
+version '0.1-SNAPSHOT'
+sourceCompatibility = 1.8
+
 dependencies {
     // This dependency is used by the application.
-    implementation 'org.postgresql:postgresql:42.2.16'
-    compile 'info.picocli:picocli:4.5.1'
+    compile 'org.postgresql:postgresql:42.2.18'
+    compile'info.picocli:picocli:4.5.1'
     annotationProcessor 'info.picocli:picocli-codegen:4.5.1'
 
     // Use JUnit test framework
     testImplementation 'junit:junit:4.12'
 }
 
+
+shadowJar {
+    configurations = [project.configurations.compile]
+    exclude("META-INF/maven/**")
+    exclude("META-INF/LICENSE*")
+    exclude("META-INF/NOTICE*")
+}
+
 compileJava {
     options.compilerArgs += ["-Aproject=${project.group}/${project.name}"]
 }
+
 application {
     // Define the main class for the application.
     mainClassName = 'rocks.postgres.JDBCBench'

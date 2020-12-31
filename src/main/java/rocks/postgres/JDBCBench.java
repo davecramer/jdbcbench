@@ -219,6 +219,19 @@ public class JDBCBench implements Callable <Integer> {
 		List<Thread> clients = new ArrayList<Thread>();
 		Thread t;
 
+		Properties props = new Properties();
+		PGServiceFile pgServiceFile = PGServiceFile.load();
+		if ( service != null && !service.equals("") ) {
+			try {
+				props.putAll(pgServiceFile.getService(service));
+				host = props.getProperty("host");
+//				port = PGProperty.PG_PORT.getString(props)==null?5432:;
+				dbName = props.getProperty("dbname");
+			} catch (SQLException throwables) {
+				throwables.printStackTrace();
+			}
+		}
+
 		try {
 			if (init) {
 				System.out.print("Initializing dataset...");
@@ -249,7 +262,12 @@ public class JDBCBench implements Callable <Integer> {
 				if (i == 0) {
 					clientCon = con;
 				} else {
-					clientCon = DriverManager.getConnection(dbUrl);
+					if ( service != null && !service.equals("") ){
+						clientCon = DriverManager.getConnection(jdbcProtocol + props.getProperty("host")+'/'+props.getProperty("dbname"), props );
+					} else {
+
+						clientCon = DriverManager.getConnection(dbUrl);
+					}
 				}
 
 				Thread clientThread = new ClientThread(transactionsPerClient, i,

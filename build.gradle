@@ -9,8 +9,8 @@
 plugins {
     // Apply the java plugin to add support for Java
     id 'java'
-    id 'com.github.johnrengelman.shadow' version '6.1.0'
-
+   // id 'com.github.johnrengelman.shadow' version '6.1.0'
+    id 'org.graalvm.buildtools.native' version '0.9.11'
     // Apply the application plugin to add support for building a CLI application.
     id 'application'
 }
@@ -32,27 +32,42 @@ sourceCompatibility = 1.8
 
 dependencies {
     // This dependency is used by the application.
-    compile 'org.postgresql:postgresql:42.2.18'
-    compile'info.picocli:picocli:4.5.1'
+
+    runtimeOnly 'org.postgresql:postgresql:42.4.3-SNAPSHOT'
+    runtimeOnly 'software.amazon.jdbc:aws-advanced-jdbc-wrapper:0.1.0'
+    implementation 'info.picocli:picocli:4.5.1'
     annotationProcessor 'info.picocli:picocli-codegen:4.5.1'
 
     // Use JUnit test framework
     testImplementation 'junit:junit:4.12'
+    testImplementation "org.postgresql:postgresql:42.3.5"
 }
 
-
+/*
 shadowJar {
-    configurations = [project.configurations.compile]
+    configurations = [project.configurations.implementation]
     exclude("META-INF/maven/**")
     exclude("META-INF/LICENSE*")
     exclude("META-INF/NOTICE*")
 }
-
+*/
 compileJava {
     options.compilerArgs += ["-Aproject=${project.group}/${project.name}"]
 }
 
 application {
     // Define the main class for the application.
-    mainClassName = 'rocks.postgres.JDBCBench'
+    mainClass = 'rocks.postgres.JDBCBench'
+}
+
+graalvmNative {
+    useArgFile = false
+    binaries {
+        main {
+            mainClass = 'rocks.postgres.JDBCBench'
+            useFatJar = true
+            verbose = true
+            buildArgs.add('-H:+ReportExceptionStackTraces')
+        }
+    }
 }

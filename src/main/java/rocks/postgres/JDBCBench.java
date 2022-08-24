@@ -12,11 +12,9 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Callable;
 
-import org.postgresql.PGProperty;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -121,6 +119,9 @@ public class JDBCBench implements Callable <Integer> {
 	@Option(names={"--username", "-u"}, description = "User name to authenticate as", defaultValue = "current user")
 	private String user = System.getProperty("user.name");
 
+	@Option(names={"--password"}, description = "Password", defaultValue ="")
+	private String password = "";
+
 	@Option(names={"--initialize", "-i"}, description = "Initializes database, tables and data", defaultValue = "false")
 	private boolean initializeDataset=false;
 
@@ -136,7 +137,7 @@ public class JDBCBench implements Callable <Integer> {
 
 	private MemoryWatcherThread MemoryWatcher;
 
-	private final String jdbcProtocol = "jdbc:postgresql://";
+	private final String jdbcProtocol = "jdbc:aws-wrapper:postgresql://"; // jdbc:postgresql://";
 
 	private String createUrl(String host, int port, String database){
 		StringBuilder stringBuilder = new StringBuilder(jdbcProtocol)
@@ -162,6 +163,13 @@ public class JDBCBench implements Callable <Integer> {
 				dbName = props.getProperty("dbname");
 			} catch (SQLException throwables) {
 				throwables.printStackTrace();
+			}
+		} else {
+			if ( user != null ) {
+				props.put("user", user);
+			}
+			if (password != null ) {
+				props.put ("password", password);
 			}
 		}
 		dbUrl = createUrl(host, port, dbName);
@@ -192,9 +200,9 @@ public class JDBCBench implements Callable <Integer> {
 				connection = DriverManager.getConnection(jdbcProtocol + props.getProperty("host")+'/'+props.getProperty("dbname"), props );
 			} else {
 
-				connection = DriverManager.getConnection(dbUrl);
+				connection = DriverManager.getConnection(dbUrl, props);
 			}
-			executeTest(connection, initializeDataset);
+			executeTest(connection, initializeDataset, props);
 		} catch (Exception e) {
 			System.err.println(e.getMessage());
 			e.printStackTrace();
@@ -214,12 +222,11 @@ public class JDBCBench implements Callable <Integer> {
 	public JDBCBench() {
 	}
 
-	public void executeTest(Connection con, boolean init) {
+	public void executeTest(Connection con, boolean init, Properties props) {
 		int clientCount;
 		List<Thread> clients = new ArrayList<Thread>();
 		Thread t;
 
-		Properties props = new Properties();
 		PGServiceFile pgServiceFile = PGServiceFile.load();
 		if ( service != null && !service.equals("") ) {
 			try {
@@ -262,11 +269,12 @@ public class JDBCBench implements Callable <Integer> {
 				if (i == 0) {
 					clientCon = con;
 				} else {
+
 					if ( service != null && !service.equals("") ){
 						clientCon = DriverManager.getConnection(jdbcProtocol + props.getProperty("host")+'/'+props.getProperty("dbname"), props );
 					} else {
 
-						clientCon = DriverManager.getConnection(dbUrl);
+						clientCon = DriverManager.getConnection(dbUrl, props);
 					}
 				}
 

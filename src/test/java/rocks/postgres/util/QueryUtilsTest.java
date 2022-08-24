@@ -28,7 +28,7 @@ public class QueryUtilsTest {
     @Test
     public void testPrepareUpdateAccountsQuery() {
         String preparedQuery = queryUtils.prepareUpdateAccountsQuery(1111, 55);
-        Assert.assertEquals("UPDATE pgbench_accounts SET abalance = abalance + 1111 WHERE aid = 55", preparedQuery);
+        Assert.assertEquals("update pgbench_accounts SET abalance = abalance + 1111 WHERE aid = 55", preparedQuery);
     }
 
     @Test
